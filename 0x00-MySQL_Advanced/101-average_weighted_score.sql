@@ -1,31 +1,42 @@
 -- ComputeAverageWeightedScoreForUsers
-DROP PROCEDURE IF EXISTS ComputeAverageWeightedScoreForUsers;
 DELIMITER //
-CREATE PROCEDURE ComputeAverageWeightedScoreForUsers ()
+
+CREATE PROCEDURE ComputeAverageWeightedScoreForUsers()
 BEGIN
-    ALTER TABLE users ADD total_weighted_score INT NOT NULL;
-    ALTER TABLE users ADD total_weight INT NOT NULL;
+    DECLARE total_weighted_score FLOAT;
+    DECLARE total_weight FLOAT;
+
+    -- Initialize variables
+    SET total_weighted_score = 0;
+    SET total_weight = 0;
+
+    -- Iterate over users
+    FOR each_user IN (SELECT id FROM users)
+    DO
+        -- Calculate weighted average score for the user
+        SELECT
+            SUM(c.score * p.weight) / NULLIF(SUM(p.weight), 0)
+        INTO
+            total_weighted_score
+        FROM
+            corrections c
+        JOIN
+            projects p ON c.project_id = p.id
+        WHERE
+            c.user_id = each_user.id;
+
+        -- Update user's average_score
+        UPDATE users
+        SET average_score = total_weighted_score
+        WHERE id = each_user.id;
+
+        -- Accumulate total weight
+        SET total_weight = total_weight + total_weighted_score;
+    END FOR;
+
+    -- Update overall average_score for all users
     UPDATE users
-        SET users.average_score = IF(users.total_weight = 0, 0, users.total_weighted_score / users.total_weight);
-    UPDATE users
-        SET total_weighted_score = (
-            SELECT SUM(corrections.score * projects.weight)
-            FROM corrections
-                INNER JOIN projects
-                    ON corrections.project_id = projects.id
-            WHERE corrections.user_id = users.id
-            );
-    ALTER TABLE users
-        DROP COLUMN total_weighted_score;
-    ALTER TABLE users
-        DROP COLUMN total_weight;
-    UPDATE users
-        SET total_weight = (
-            SELECT SUM(projects.weight)
-                FROM corrections
-                    INNER JOIN projects
-                        ON corrections.project_id = projects.id
-                WHERE corrections.user_id = users.id
-            );
+    SET average_score = total_weight / NULLIF((SELECT COUNT(*) FROM users), 0);
 END //
+
 DELIMITER ;
